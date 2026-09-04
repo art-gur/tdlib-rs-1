@@ -16,6 +16,12 @@ jobs:
   release_github:
     runs-on: ubuntu-latest
     needs: build-tdlib
+    permissions:
+      # `gh run download` reads this run's artifacts, `gh release create`
+      # writes the release. Both are needed because a fork's GITHUB_TOKEN
+      # defaults to read-only.
+      actions: read
+      contents: write
     steps:
       - name: Download artifacts
         run: gh run download ${{ github.run_id }} -R $REPO
