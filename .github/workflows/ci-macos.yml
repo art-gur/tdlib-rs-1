@@ -9,7 +9,10 @@ on:
   workflow_run:
     workflows: [ CD ]
     types: [ completed ]
-    branches: [ main ]
+    # CD only runs on version tags, so its head_branch is the tag (`v1.6.0`),
+    # never `main`. Matching just `main` meant this rerun never fired and CI
+    # stayed red on the run that raced the release.
+    branches: [ main, 'v*' ]
 
 env:
   GH_TOKEN: ${{ github.token }}

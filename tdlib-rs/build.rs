@@ -216,11 +216,10 @@ fn download_tdlib() {
         Ok(response) => response,
         Err(err) => {
             panic!(
-                "[{}] Failed to download file: {}\n{}\n{}",
-                "Your OS or architecture may be unsupported.",
-                "Please try using the `pkg-config` or `local-tdlib` features.",
-                err,
-                &url
+                "Failed to download {url}: {err}\n\
+                 The release for this crate version may not exist yet, or \
+                 your OS or architecture may be unsupported.\n\
+                 Try the `pkg-config` or `local-tdlib` features instead."
             )
         }
     };
