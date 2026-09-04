@@ -7,16 +7,16 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "1.4.0"
+version = "1.6.0"
 edition = "2024"
 authors = [
     "Federico Bruzzone <federico.bruzzone.i@gmail.com>",
     "Andrea Longoni",
 ]
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/FedericoBruzzone/tdlib-rs"
-repository = "https://github.com/FedericoBruzzone/tdlib-rs"
+homepage = "https://github.com/art-gur/tdlib-rs-1"
+repository = "https://github.com/art-gur/tdlib-rs-1"
 
 [workspace.dependencies]
-tdlib-rs-gen = { path = "tdlib-rs-gen", version = "1.4.0" }
-tdlib-rs-parser = { path = "tdlib-rs-parser", version = "1.4.0" }
+tdlib-rs-gen = { path = "tdlib-rs-gen", version = "1.6.0" }
+tdlib-rs-parser = { path = "tdlib-rs-parser", version = "1.6.0" }

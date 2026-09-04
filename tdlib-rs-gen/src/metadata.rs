@@ -45,8 +45,21 @@ impl<'a> Metadata<'a> {
                 .push(d);
         });
 
+        // Bare parameter types name a single constructor instead of the boxed
+        // type, so they can only be resolved through the definition names.
+        let defs_by_name = type_definitions
+            .iter()
+            .map(|d| (&d.name, *d))
+            .collect::<HashMap<_, _>>();
+
         type_definitions.iter().for_each(|d| {
-            if def_self_references(d, d, &metadata.defs_with_type, &mut HashSet::new()) {
+            if def_self_references(
+                d,
+                d,
+                &metadata.defs_with_type,
+                &defs_by_name,
+                &mut HashSet::new(),
+            ) {
                 metadata.recursing_defs.insert(&d.name);
             }
         });
@@ -80,10 +93,28 @@ fn def_self_references<'a>(
     root: &Definition,
     check: &'a Definition,
     defs_with_type: &'a HashMap<&String, Vec<&Definition>>,
+    defs_by_name: &'a HashMap<&'a String, &'a Definition>,
     visited: &mut HashSet<&'a String>,
 ) -> bool {
     visited.insert(&check.name);
     for param in check.params.iter() {
+        if param.ty.bare {
+            // A bare parameter embeds one constructor directly, so it recurses
+            // as soon as it reaches the root constructor again.
+            if param.ty.name == root.name {
+                return true;
+            }
+
+            if let Some(def) = defs_by_name.get(&param.ty.name)
+                && !visited.contains(&def.name)
+                && def_self_references(root, def, defs_with_type, defs_by_name, visited)
+            {
+                return true;
+            }
+
+            continue;
+        }
+
         if param.ty.name == root.ty.name {
             return true;
         }
@@ -93,7 +124,7 @@ fn def_self_references<'a>(
                 if visited.contains(&def.name) {
                     continue;
                 }
-                if def_self_references(root, def, defs_with_type, visited) {
+                if def_self_references(root, def, defs_with_type, defs_by_name, visited) {
                     return true;
                 }
             }

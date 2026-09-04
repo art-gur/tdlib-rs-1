@@ -18,7 +18,7 @@ use tdlib_rs_parser::tl::Definition;
 #[allow(dead_code)]
 #[cfg(not(any(feature = "docs", feature = "pkg-config")))]
 /// The version of the TDLib library.
-const TDLIB_VERSION: &str = "1.8.61";
+const TDLIB_VERSION: &str = "1.8.67";
 
 /// Load the type language definitions from a certain file.
 /// Parse errors will be printed to `stderr`, and only the
@@ -195,7 +195,7 @@ fn generic_build() {
 
 #[cfg(feature = "download-tdlib")]
 fn download_tdlib() {
-    let base_url = "https://github.com/FedericoBruzzone/tdlib-rs/releases/download";
+    let base_url = "https://github.com/art-gur/tdlib-rs-1/releases/download";
     let url = format!(
         "{}/v{}/tdlib-{}-{}-{}.zip",
         base_url,

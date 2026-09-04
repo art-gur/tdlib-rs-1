@@ -14,6 +14,22 @@ Here we write upgrading notes for brands. It's a team effort to make them as str
 
 ### Fixed
 
+## [1.6.0] - 2026-09-04
+
+### Changed
+
+- Updated TDLib to 1.8.67 (`d1085f9cebc5a62379991ae1652673954f229c1f`).
+- Regenerated `tdlib-rs/tl/api.tl` from the TDLib 1.8.67 scheme.
+- Prebuilt TDLib archives are downloaded from this fork's releases.
+
+### Fixed
+
+- `tdlib-rs-gen` now follows bare parameter types when detecting recursive
+  definitions. TDLib 1.8.67 introduced `richTextButton button:inlineButton`,
+  whose cycle back to `RichText` is only reachable through a bare type, so the
+  generated enum variant was not boxed and the crate failed to compile with
+  E0072.
+
 ## [1.4.0] - 2026-04-12
 
 ### Added
