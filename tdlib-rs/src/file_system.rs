@@ -102,9 +102,11 @@ pub trait FileSystem: Send + Sync + 'static {
     fn open(&self, path: &str, flags: OpenFlags) -> Result<u64, FsError>;
     /// Closes a handle. A file unlinked while open is freed after its last handle is closed.
     fn close(&self, handle: u64);
-    /// Reads up to `buffer.len()` bytes at `offset`; 0 means the end of the file.
+    /// Reads `buffer.len()` bytes at `offset`, fewer only at the end of the file: TDLib treats a
+    /// short read of a regular file as an error.
     fn read_at(&self, handle: u64, buffer: &mut [u8], offset: u64) -> Result<usize, FsError>;
-    /// Writes `data` at `offset`; a write past the end leaves the gap filled with zeros.
+    /// Writes all of `data` at `offset` or fails; a write past the end leaves the gap filled with
+    /// zeros.
     fn write_at(&self, handle: u64, data: &[u8], offset: u64) -> Result<usize, FsError>;
     /// The length of an open file.
     fn size(&self, handle: u64) -> Result<u64, FsError>;
@@ -160,8 +162,9 @@ unsafe extern "C" {
     fn td_set_file_system(prefix: *const c_char, file_system: *const TdFileSystem) -> c_int;
 }
 
-/// Installs `file_system` for every path strictly below `prefix`; the prefix directory itself
-/// stays on the OS. Call it before the first client is created. It can be installed once and
+/// Installs `file_system` for every path strictly below `prefix`, an absolute path in the form
+/// `files_directory` takes after TDLib's realpath; the prefix directory itself stays on the OS,
+/// and a client's `database_directory` must be outside it. Call it before the first client is created. It can be installed once and
 /// stays installed until the process exits. While a client's `files_directory` is below the
 /// prefix, TDLib keeps all its files there, thumbnails and stickers included.
 pub fn set_file_system(
