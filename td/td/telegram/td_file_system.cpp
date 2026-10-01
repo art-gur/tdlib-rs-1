@@ -16,6 +16,10 @@
 
 #include <functional>
 
+#if TD_PORT_POSIX
+#include <cerrno>
+#endif
+
 namespace td {
 
 namespace {
@@ -44,11 +48,52 @@ Slice error_name(int64 code) {
   }
 }
 
+// The error code an OS file call would give. TDLib gives -1 ("canceled": a loader stops silently and a generation
+// part counts as written) and 0 (a damaged local file: the partial file is dropped) their own meanings, so a file
+// system error must never reach it as either.
+int native_code(int64 code) {
+#if TD_PORT_WINDOWS
+  switch (code) {
+    case TD_FILE_SYSTEM_ERROR_NOT_FOUND:
+      return 2;  // ERROR_FILE_NOT_FOUND
+    case TD_FILE_SYSTEM_ERROR_EXISTS:
+      return 80;  // ERROR_FILE_EXISTS
+    case TD_FILE_SYSTEM_ERROR_NOT_EMPTY:
+      return 145;  // ERROR_DIR_NOT_EMPTY
+    case TD_FILE_SYSTEM_ERROR_NO_SPACE:
+      return 112;  // ERROR_DISK_FULL
+    case TD_FILE_SYSTEM_ERROR_IS_DIRECTORY:
+      return 5;  // ERROR_ACCESS_DENIED, what opening a directory as a file gives
+    case TD_FILE_SYSTEM_ERROR_NOT_DIRECTORY:
+      return 267;  // ERROR_DIRECTORY
+    default:
+      return 31;  // ERROR_GEN_FAILURE
+  }
+#else
+  switch (code) {
+    case TD_FILE_SYSTEM_ERROR_NOT_FOUND:
+      return ENOENT;
+    case TD_FILE_SYSTEM_ERROR_EXISTS:
+      return EEXIST;
+    case TD_FILE_SYSTEM_ERROR_NOT_EMPTY:
+      return ENOTEMPTY;
+    case TD_FILE_SYSTEM_ERROR_NO_SPACE:
+      return ENOSPC;
+    case TD_FILE_SYSTEM_ERROR_IS_DIRECTORY:
+      return EISDIR;
+    case TD_FILE_SYSTEM_ERROR_NOT_DIRECTORY:
+      return ENOTDIR;
+    default:
+      return EIO;
+  }
+#endif
+}
+
 Status to_status(int64 code, Slice action, Slice path) {
   if (code >= 0) {
     return Status::OK();
   }
-  return Status::Error(static_cast<int>(code), PSLICE() << action << " \"" << path << "\": " << error_name(code));
+  return Status::Error(native_code(code), PSLICE() << action << " \"" << path << "\": " << error_name(code));
 }
 
 class CallbackFileSystem final : public VirtualFileSystem {

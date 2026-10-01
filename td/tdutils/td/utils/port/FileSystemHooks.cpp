@@ -15,9 +15,13 @@ namespace td {
 
 namespace {
 
-// Never freed: handles may still be closed while static objects are destroyed at exit.
-std::atomic<VirtualFileSystem *> virtual_file_system{nullptr};
-string virtual_file_system_prefix;
+struct Installed {
+  string prefix;
+  VirtualFileSystem *file_system;
+};
+
+// Never freed: TDLib threads may still open files while static objects are destroyed at exit.
+std::atomic<Installed *> installed{nullptr};
 std::mutex set_mutex;
 
 bool is_separator(char c) {
@@ -35,33 +39,43 @@ bool is_same_char(char a, char b) {
 #endif
 }
 
+bool is_absolute(Slice path) {
+#if TD_PORT_WINDOWS
+  return (path.size() >= 3 && path[1] == ':' && is_separator(path[2])) ||
+         (path.size() >= 2 && is_separator(path[0]) && is_separator(path[1]));
+#else
+  return !path.empty() && path[0] == '/';
+#endif
+}
+
 }  // namespace
 
 Status set_virtual_file_system(CSlice prefix, unique_ptr<VirtualFileSystem> file_system) {
   if (file_system == nullptr) {
     return Status::Error("File system must be non-empty");
   }
-  if (prefix.empty()) {
-    return Status::Error("File system prefix must be non-empty");
+  // a relative prefix would never match TDLib's absolute paths, and the files would silently stay on disk
+  if (!is_absolute(prefix)) {
+    return Status::Error("File system prefix must be an absolute path");
   }
   std::lock_guard<std::mutex> guard(set_mutex);
-  if (virtual_file_system.load(std::memory_order_acquire) != nullptr) {
+  if (installed.load(std::memory_order_acquire) != nullptr) {
     return Status::Error("File system is already installed");
   }
-  virtual_file_system_prefix = prefix.str();
-  if (!is_separator(virtual_file_system_prefix.back())) {
-    virtual_file_system_prefix += TD_DIR_SLASH;
+  auto *entry = new Installed{prefix.str(), file_system.release()};
+  if (!is_separator(entry->prefix.back())) {
+    entry->prefix += TD_DIR_SLASH;
   }
-  virtual_file_system.store(file_system.release(), std::memory_order_release);
+  installed.store(entry, std::memory_order_release);
   return Status::OK();
 }
 
 VirtualFileSystem *get_virtual_file_system(Slice path) {
-  auto *file_system = virtual_file_system.load(std::memory_order_acquire);
-  if (file_system == nullptr) {
+  const auto *entry = installed.load(std::memory_order_acquire);
+  if (entry == nullptr) {
     return nullptr;
   }
-  const string &prefix = virtual_file_system_prefix;
+  const string &prefix = entry->prefix;
   if (path.size() <= prefix.size()) {
     return nullptr;
   }
@@ -73,7 +87,7 @@ VirtualFileSystem *get_virtual_file_system(Slice path) {
   // the prefix directory itself belongs to the OS, so that it can be created and checked as usual
   for (size_t i = prefix.size(); i < path.size(); i++) {
     if (!is_separator(path[i])) {
-      return file_system;
+      return entry->file_system;
     }
   }
   return nullptr;
