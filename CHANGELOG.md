@@ -10,6 +10,10 @@ Here we write upgrading notes for brands. It's a team effort to make them as str
 
 ### Added
 
+- `tdlib_rs::file_system`: `set_file_system(prefix, Box<dyn FileSystem>)` keeps every TDLib
+  file below a prefix in an application-provided file system. Needs a tdjson built from `td/`
+  with the file-system hook (`td_set_file_system`).
+
 ### Changed
 
 - TDLib sources are vendored in `td/` as a squashed git subtree of

@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 pub mod build;
+pub mod file_system;
 mod generated;
 mod observer;
 mod tdjson;
