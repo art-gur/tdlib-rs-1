@@ -84,7 +84,8 @@ typedef struct TdFileSystem {
   void (*close)(void *context, uint64_t handle);
   /** Reads size bytes at offset, fewer only at the end of the file; returns the number of bytes read, or an error. */
   int64_t (*read_at)(void *context, uint64_t handle, void *buffer, size_t size, int64_t offset);
-  /** Writes all size bytes at offset or fails; a write past the end leaves the gap filled with zeros. Returns size. */
+  /** Writes all size bytes at offset or fails; returns size. A write past the end extends the file; reading the gap
+   *  may return zeros or fail, as TDLib reads only what it has written. */
   int64_t (*write_at)(void *context, uint64_t handle, const void *data, size_t size, int64_t offset);
   /** Stores the length of an open file. */
   int32_t (*size)(void *context, uint64_t handle, int64_t *size);

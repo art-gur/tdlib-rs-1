@@ -33,7 +33,8 @@ class VirtualFileSystem {
 
   // read_at returns fewer bytes than asked only at the end of the file, write_at writes everything or fails:
   // TDLib treats a short read or write of a regular file as an error;
-  // a write past the end of the file extends it, leaving the gap filled with zeros
+  // a write past the end of the file extends it; the gap may read as zeros or fail, because TDLib reads only what it
+  // has written, so a file system that lost a write in a crash fails such a read instead of returning zeros
   virtual Result<size_t> read_at(uint64 handle, MutableSlice data, int64 offset) = 0;
   virtual Result<size_t> write_at(uint64 handle, Slice data, int64 offset) = 0;
 
