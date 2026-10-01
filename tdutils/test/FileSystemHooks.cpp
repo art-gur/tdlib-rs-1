@@ -235,7 +235,15 @@ class MemoryFileSystem final : public td::VirtualFileSystem {
 };
 
 const td::string &root() {
-  static const td::string root = "virtual_file_system_test_root";
+  // the prefix directory itself stays on the OS and must be absolute
+  static const td::string root = [] {
+    td::mkdir("virtual_file_system_test_root").ensure();
+    auto path = td::realpath("virtual_file_system_test_root").move_as_ok();
+    while (!path.empty() && (path.back() == '/' || path.back() == '\\')) {
+      path.pop_back();
+    }
+    return path;
+  }();
   return root;
 }
 
@@ -265,6 +273,7 @@ TEST(VirtualFileSystem, prefix) {
   ASSERT_TRUE(td::get_virtual_file_system(root() + "/a") == &memory_file_system());
   ASSERT_TRUE(td::get_virtual_file_system("test_dir") == nullptr);
   ASSERT_TRUE(td::set_virtual_file_system("other_root", td::make_unique<MemoryFileSystem>("other_root")).is_error());
+  ASSERT_TRUE(td::set_virtual_file_system(root() + "2", td::make_unique<MemoryFileSystem>("x")).is_error());
 }
 
 TEST(VirtualFileSystem, create_new) {
@@ -415,6 +424,13 @@ TEST(VirtualFileSystem, walk) {
   ASSERT_EQ(2u, files.size());
   ASSERT_TRUE(files.count(PSTRING() << dir << TD_DIR_SLASH << "a" << TD_DIR_SLASH << "b" << TD_DIR_SLASH << "f1") == 1);
   ASSERT_TRUE(files.count(PSTRING() << dir << TD_DIR_SLASH << "c" << TD_DIR_SLASH << "f2") == 1);
+
+  // as over OS directories, a directory that can't be listed reports nothing
+  int reported = 0;
+  ASSERT_TRUE(td::WalkPath::run(PSLICE() << dir << TD_DIR_SLASH << "missing",
+                                [&](td::CSlice, td::WalkPath::Type) { reported++; })
+                  .is_error());
+  ASSERT_EQ(0, reported);
 
   int visited = 0;
   td::WalkPath::run(dir, [&](td::CSlice name, td::WalkPath::Type type) {

@@ -31,6 +31,8 @@ class VirtualFileSystem {
   virtual Result<uint64> open(CSlice path, int32 flags) = 0;
   virtual void close(uint64 handle) = 0;
 
+  // read_at returns fewer bytes than asked only at the end of the file, write_at writes everything or fails:
+  // TDLib treats a short read or write of a regular file as an error;
   // a write past the end of the file extends it, leaving the gap filled with zeros
   virtual Result<size_t> read_at(uint64 handle, MutableSlice data, int64 offset) = 0;
   virtual Result<size_t> write_at(uint64 handle, Slice data, int64 offset) = 0;
@@ -54,8 +56,8 @@ class VirtualFileSystem {
   virtual Status list(CSlice path, const std::function<bool(Slice name, bool is_dir)> &entry) = 0;
 };
 
-// Installs file_system for every path strictly below prefix. It can be installed once, before any such path is used,
-// and stays installed until the process exits.
+// Installs file_system for every path strictly below prefix, an absolute path in the form TDLib's realpath gives.
+// It can be installed once, before any such path is used, and stays installed until the process exits.
 Status set_virtual_file_system(CSlice prefix, unique_ptr<VirtualFileSystem> file_system) TD_WARN_UNUSED_RESULT;
 
 // Returns the file system that owns path, or nullptr if path belongs to the OS.

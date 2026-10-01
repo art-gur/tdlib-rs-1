@@ -82,9 +82,9 @@ typedef struct TdFileSystem {
   int32_t (*open)(void *context, const char *path, int32_t flags, uint64_t *handle);
   /** Closes a handle. A file unlinked while open is freed after its last handle is closed. */
   void (*close)(void *context, uint64_t handle);
-  /** Reads up to size bytes at offset; returns the number of bytes read, 0 at the end of the file, or an error. */
+  /** Reads size bytes at offset, fewer only at the end of the file; returns the number of bytes read, or an error. */
   int64_t (*read_at)(void *context, uint64_t handle, void *buffer, size_t size, int64_t offset);
-  /** Writes size bytes at offset; a write past the end leaves the gap filled with zeros. Returns the bytes written. */
+  /** Writes all size bytes at offset or fails; a write past the end leaves the gap filled with zeros. Returns size. */
   int64_t (*write_at)(void *context, uint64_t handle, const void *data, size_t size, int64_t offset);
   /** Stores the length of an open file. */
   int32_t (*size)(void *context, uint64_t handle, int64_t *size);
@@ -108,12 +108,14 @@ typedef struct TdFileSystem {
 
 /**
  * Installs a file system for every path strictly below a prefix. The prefix directory itself stays on the OS.
+ * The database_directory of a client must be outside the prefix: SQLite opens its files itself.
  * It must be called before the first client is created and can be called only once; the file system stays installed
  * until the process exits. While a client's files_directory is below the prefix, TDLib keeps all its files there,
  * as if the option store_all_files_in_files_directory were set.
  *
- * \param[in]  prefix Null-terminated UTF-8 absolute path of the directory; on Windows compared without regard to case
- *                    and to the kind of the separators.
+ * \param[in]  prefix Null-terminated UTF-8 absolute path of the directory, in the form files_directory takes after
+ *                    TDLib's realpath; on Windows compared without regard to ASCII case and to the kind of the
+ *                    separators.
  * \param[in]  file_system The callbacks; the struct is copied.
  * \return 1 on success, or 0 if the file system is invalid or one is already installed.
  */

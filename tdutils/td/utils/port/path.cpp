@@ -104,6 +104,14 @@ Status rmrf(CSlice path) {
 
 static Result<bool> walk_virtual_dir(VirtualFileSystem *file_system, const string &dir,
                                      const std::function<WalkPath::Action(CSlice name, WalkPath::Type type)> &func) {
+  // the entries are collected first, so that the file system isn't called back while it lists, and, as in the walk
+  // over OS directories, a directory that can't be listed is reported before anything is visited
+  vector<std::pair<string, bool>> entries;
+  TRY_STATUS(file_system->list(dir, [&](Slice name, bool is_dir) {
+    entries.emplace_back(name.str(), is_dir);
+    return true;
+  }));
+
   switch (func(dir, WalkPath::Type::EnterDir)) {
     case WalkPath::Action::Abort:
       return false;
@@ -112,13 +120,6 @@ static Result<bool> walk_virtual_dir(VirtualFileSystem *file_system, const strin
     case WalkPath::Action::Continue:
       break;
   }
-
-  // the entries are collected first, so that the file system isn't called back while it lists
-  vector<std::pair<string, bool>> entries;
-  TRY_STATUS(file_system->list(dir, [&](Slice name, bool is_dir) {
-    entries.emplace_back(name.str(), is_dir);
-    return true;
-  }));
   for (auto &entry : entries) {
     if (entry.first.empty() || entry.first[0] == '.') {
       // the same entries are skipped by the walk over OS directories on Windows

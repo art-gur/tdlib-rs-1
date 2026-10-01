@@ -34,6 +34,7 @@
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/Clocks.h"
+#include "td/utils/port/FileSystemHooks.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/Stat.h"
 #include "td/utils/Random.h"
@@ -652,6 +653,11 @@ Status TdDb::check_parameters(Parameters &parameters) {
                                        << "\": " << r_database_directory.error());
   }
   parameters.database_directory_ = r_database_directory.move_as_ok();
+  // SQLite opens its files itself, so the database can't share an application file system with the binlog
+  if (get_virtual_file_system(PSLICE() << parameters.database_directory_ << "td.binlog") != nullptr) {
+    return Status::Error(400, PSLICE() << "Can't init database in the directory \"" << parameters.database_directory_
+                                       << "\": it is inside the application file system");
+  }
 
   if (parameters.files_directory_.empty()) {
     parameters.files_directory_ = parameters.database_directory_;
