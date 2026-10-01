@@ -4,9 +4,11 @@ on:
     workflow_dispatch:
     workflow_call:
 
+# TDLib sources are vendored in td/ (git subtree of tdlib/td), so every job
+# builds the tree of the checked-out commit. Cache keys carry the td/ tree hash:
+# a change anywhere in td/ rebuilds, and an unchanged tree reuses the cache.
 env:
     TDLIB_VERSION: "1.8.67"
-    TDLIB_COMMIT: d1085f9cebc5a62379991ae1652673954f229c1f
     OPENSSL_VERSION: "3.6.1"
 
 jobs:
@@ -19,18 +21,23 @@ jobs:
                     - os: ubuntu-24.04-arm
         runs-on: ${{ matrix.os }}
         steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+            - name: Resolve TDLib source tree
+              shell: bash
+              run: echo "TD_TREE=$(git rev-parse HEAD:td)" >> "$GITHUB_ENV"
             - name: Restore cache TDLib
               id: cache-tdlib-restore
               uses: actions/cache/restore@v4
               with:
                   path: td/tdlib
-                  key: tdlib-${{ env.TDLIB_VERSION }}-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+                  key: tdlib-${{ env.TDLIB_VERSION }}-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TD_TREE }}
             - name: Setup ccache
               if: steps.cache-tdlib-restore.outputs.cache-hit != 'true'
               uses: hendrikmuhs/ccache-action@v1.2
               with:
                 create-symlink: true
-                key: ccache-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TDLIB_COMMIT }}
+                key: ccache-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TDLIB_VERSION }}
             - name: Build TDLib
               if: steps.cache-tdlib-restore.outputs.cache-hit != 'true'
               env:
@@ -40,9 +47,7 @@ jobs:
                   sudo apt-get update
                   sudo apt-get -y upgrade
                   sudo apt-get install make git zlib1g-dev libssl-dev gperf php-cli cmake clang-18 libc++-18-dev libc++abi-18-dev
-                  git clone https://github.com/tdlib/td.git
                   cd td
-                  git checkout $TDLIB_COMMIT
                   rm -rf build
                   mkdir build
                   cd build
@@ -70,7 +75,7 @@ jobs:
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
-                  name: ${{ steps.cache-tdlib-restore.outputs.cache-primary-key }}
+                  name: tdlib-${{ env.TDLIB_VERSION }}-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
                   path: ./td/tdlib/
                   overwrite: true
 
@@ -83,18 +88,23 @@ jobs:
                     - os: macos-26-intel # Intel # macos-13
         runs-on: ${{ matrix.os }}
         steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+            - name: Resolve TDLib source tree
+              shell: bash
+              run: echo "TD_TREE=$(git rev-parse HEAD:td)" >> "$GITHUB_ENV"
             - name: Restore cache TDLib
               id: cache-tdlib-restore
               uses: actions/cache/restore@v4
               with:
                   path: td/tdlib
-                  key: tdlib-${{ env.TDLIB_VERSION }}-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+                  key: tdlib-${{ env.TDLIB_VERSION }}-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TD_TREE }}
             - name: Setup ccache
               if: steps.cache-tdlib-restore.outputs.cache-hit != 'true'
               uses: hendrikmuhs/ccache-action@v1.2
               with:
                 create-symlink: true
-                key: ccache-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TDLIB_COMMIT }}
+                key: ccache-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TDLIB_VERSION }}
             - name: Build TDLib
               if: steps.cache-tdlib-restore.outputs.cache-hit != 'true'
               env:
@@ -103,9 +113,7 @@ jobs:
               run: |
                   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
                   brew install gperf openssl zlib
-                  git clone https://github.com/tdlib/td.git
                   cd td
-                  git checkout $TDLIB_COMMIT
                   rm -rf build
                   mkdir build
                   cd build
@@ -137,7 +145,7 @@ jobs:
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
-                  name: ${{ steps.cache-tdlib-restore.outputs.cache-primary-key }}
+                  name: tdlib-${{ env.TDLIB_VERSION }}-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
                   path: ./td/tdlib/
                   overwrite: true
 
@@ -150,17 +158,22 @@ jobs:
                     - os: windows-11-arm
         runs-on: ${{ matrix.os }}
         steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+            - name: Resolve TDLib source tree
+              shell: bash
+              run: echo "TD_TREE=$(git rev-parse HEAD:td)" >> "$GITHUB_ENV"
             - name: Restore cache TDLib
               id: cache-tdlib-restore
               uses: actions/cache/restore@v4
               with:
                   path: td/tdlib
-                  key: tdlib-${{ env.TDLIB_VERSION }}-windows-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+                  key: tdlib-${{ env.TDLIB_VERSION }}-windows-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TD_TREE }}
             - name: Setup ccache
               if: steps.cache-tdlib-restore.outputs.cache-hit != 'true'
               uses: hendrikmuhs/ccache-action@v1.2
               with:
-                key: ccache-windows-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TDLIB_COMMIT }}
+                key: ccache-windows-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TDLIB_VERSION }}
             - name: Set up MSVC Developer Command Prompt
               uses: ilammy/msvc-dev-cmd@v1
               with:
@@ -175,9 +188,7 @@ jobs:
                   VCPKG_ROOT: "C:\\vcpkg"
                   MSYS_NO_PATHCONV: "1"
               run: |
-                  git clone https://github.com/tdlib/td.git
                   cd td
-                  git checkout $TDLIB_COMMIT
                   if [[ "$RUNNER_ARCH" == "X64" ]]; then
                     CMAKE_ARCH="x64"
                   elif [[ "$RUNNER_ARCH" == "ARM64" ]]; then
@@ -244,7 +255,7 @@ jobs:
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
-                  name: ${{ steps.cache-tdlib-restore.outputs.cache-primary-key }}
+                  name: tdlib-${{ env.TDLIB_VERSION }}-windows-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
                   path: ./td/tdlib/
                   overwrite: true
 
@@ -255,18 +266,23 @@ jobs:
                 abi: [aarch64, x86_64]
         runs-on: ubuntu-latest
         steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+            - name: Resolve TDLib source tree
+              shell: bash
+              run: echo "TD_TREE=$(git rev-parse HEAD:td)" >> "$GITHUB_ENV"
             - name: Restore cache TDLib
               id: cache-tdlib-restore
               uses: actions/cache/restore@v4
               with:
                   path: td/tdlib
-                  key: tdlib-${{ env.TDLIB_VERSION }}-android-${{ matrix.abi }}
+                  key: tdlib-${{ env.TDLIB_VERSION }}-android-${{ matrix.abi }}-${{ env.TD_TREE }}
             - name: Setup ccache
               if: steps.cache-tdlib-restore.outputs.cache-hit != 'true'
               uses: hendrikmuhs/ccache-action@v1.2
               with:
                 create-symlink: true
-                key: ccache-android-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TDLIB_COMMIT }}
+                key: ccache-android-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-${{ env.TDLIB_VERSION }}
             - name: Setup Android NDK
               if: steps.cache-tdlib-restore.outputs.cache-hit != 'true'
               run: |
@@ -306,9 +322,7 @@ jobs:
                   sudo apt-get update
                   sudo apt-get -y upgrade
                   sudo apt-get install make git zlib1g-dev libssl-dev gperf php-cli
-                  git clone https://github.com/tdlib/td.git
                   cd td
-                  git checkout $TDLIB_COMMIT
                   # Generate auto-generated files using native host build before cross-compiling
                   mkdir native_build
                   cd native_build
@@ -366,6 +380,6 @@ jobs:
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
-                  name: ${{ steps.cache-tdlib-restore.outputs.cache-primary-key }}
+                  name: tdlib-${{ env.TDLIB_VERSION }}-android-${{ matrix.abi }}
                   path: ./td/tdlib/
                   overwrite: true

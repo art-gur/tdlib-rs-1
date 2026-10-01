@@ -12,6 +12,15 @@ Here we write upgrading notes for brands. It's a team effort to make them as str
 
 ### Changed
 
+- TDLib sources are vendored in `td/` as a squashed git subtree of
+  tdlib/td at `42e6a5259551178d1dab54a22ad96d14bd906e20` (1.8.67, 57 commits
+  past the previous pin). Update with
+  `git subtree pull --prefix=td https://github.com/tdlib/td.git <commit> --squash`.
+- `build-tdlib.yml` builds the checked-out `td/` instead of cloning tdlib/td.
+  TDLib cache keys include the `td/` tree hash, so a source change is never
+  served a stale cached build; artifact names stay `tdlib-<version>-<os>-<arch>`.
+- Synced `tdlib-rs/tl/api.tl` with the vendored scheme (doc comments only).
+
 ### Fixed
 
 ## [1.6.0] - 2026-09-04
