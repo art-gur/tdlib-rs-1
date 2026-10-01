@@ -105,8 +105,8 @@ pub trait FileSystem: Send + Sync + 'static {
     /// Reads `buffer.len()` bytes at `offset`, fewer only at the end of the file: TDLib treats a
     /// short read of a regular file as an error.
     fn read_at(&self, handle: u64, buffer: &mut [u8], offset: u64) -> Result<usize, FsError>;
-    /// Writes all of `data` at `offset` or fails; a write past the end leaves the gap filled with
-    /// zeros.
+    /// Writes all of `data` at `offset` or fails. A write past the end extends the file; reading the
+    /// gap may return zeros or fail, as TDLib reads only what it has written.
     fn write_at(&self, handle: u64, data: &[u8], offset: u64) -> Result<usize, FsError>;
     /// The length of an open file.
     fn size(&self, handle: u64) -> Result<u64, FsError>;
