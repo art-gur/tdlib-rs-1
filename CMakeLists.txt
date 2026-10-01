@@ -1447,8 +1447,8 @@ if (NOT CMAKE_CROSSCOMPILING)
   add_dependencies(tdjson_private tl_generate_common tl_generate_json)
 endif()
 
-set(TD_JSON_HEADERS td/telegram/td_json_client.h td/telegram/td_log.h)
-set(TD_JSON_SOURCE td/telegram/td_json_client.cpp td/telegram/td_log.cpp)
+set(TD_JSON_HEADERS td/telegram/td_json_client.h td/telegram/td_log.h td/telegram/td_file_system.h)
+set(TD_JSON_SOURCE td/telegram/td_json_client.cpp td/telegram/td_log.cpp td/telegram/td_file_system.cpp)
 
 include(GenerateExportHeader)
 

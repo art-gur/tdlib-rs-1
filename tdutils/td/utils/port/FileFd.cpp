@@ -20,6 +20,7 @@
 #include "td/utils/port/config.h"
 #include "td/utils/port/detail/PollableFd.h"
 #include "td/utils/port/detail/skip_eintr.h"
+#include "td/utils/port/FileSystemHooks.h"
 #include "td/utils/port/PollFlags.h"
 #include "td/utils/port/sleep.h"
 #include "td/utils/ScopeGuard.h"
@@ -105,8 +106,43 @@ namespace detail {
 class FileFdImpl {
  public:
   PollableFdInfo info_;
+
+  // a file of a VirtualFileSystem has no native fd; it keeps its own position for read, write and seek
+  VirtualFileSystem *virtual_file_system_ = nullptr;
+  uint64 virtual_handle_ = 0;
+  int64 virtual_position_ = 0;
+
+  FileFdImpl() = default;
+  FileFdImpl(const FileFdImpl &) = delete;
+  FileFdImpl &operator=(const FileFdImpl &) = delete;
+  FileFdImpl(FileFdImpl &&) = delete;
+  FileFdImpl &operator=(FileFdImpl &&) = delete;
+  ~FileFdImpl() {
+    if (virtual_file_system_ != nullptr) {
+      virtual_file_system_->close(virtual_handle_);
+    }
+  }
 };
 }  // namespace detail
+
+Result<FileFd> FileFd::open_virtual(VirtualFileSystem *file_system, CSlice filepath, int32 flags) {
+  if (flags & WinStat) {
+    flags = (flags & ~WinStat) | Read;
+  }
+  TRY_RESULT(handle, file_system->open(filepath, flags & ~Direct));
+  auto impl = make_unique<detail::FileFdImpl>();
+  impl->virtual_file_system_ = file_system;
+  impl->virtual_handle_ = handle;
+  impl->info_.add_flags(PollFlags::Write());
+  if (flags & Append) {
+    TRY_RESULT_ASSIGN(impl->virtual_position_, file_system->get_size(handle));
+  }
+  return FileFd(std::move(impl));
+}
+
+bool FileFd::is_virtual() const {
+  return impl_ != nullptr && impl_->virtual_file_system_ != nullptr;
+}
 
 FileFd::FileFd() = default;
 FileFd::FileFd(FileFd &&) noexcept = default;
@@ -123,6 +159,11 @@ Result<FileFd> FileFd::open(CSlice filepath, int32 flags, int32 mode) {
 
   if ((flags & (Write | Read)) == 0 && !(flags & WinStat)) {
     return Status::Error(PSLICE() << "File \"" << filepath << "\" can't be " << PrintFlags{flags});
+  }
+
+  auto *file_system = get_virtual_file_system(filepath);
+  if (file_system != nullptr) {
+    return open_virtual(file_system, filepath, flags);
   }
 
 #if TD_PORT_POSIX
@@ -266,6 +307,12 @@ FileFd FileFd::from_native_fd(NativeFd native_fd) {
 }
 
 Result<size_t> FileFd::write(Slice slice) {
+  if (is_virtual()) {
+    TRY_RESULT(written, impl_->virtual_file_system_->write_at(impl_->virtual_handle_, slice, impl_->virtual_position_));
+    CHECK(written <= slice.size());
+    impl_->virtual_position_ += static_cast<int64>(written);
+    return written;
+  }
   auto native_fd = get_native_fd().fd();
 #if TD_PORT_POSIX
   auto bytes_written = detail::skip_eintr([&] { return ::write(native_fd, slice.begin(), slice.size()); });
@@ -284,6 +331,17 @@ Result<size_t> FileFd::write(Slice slice) {
 
 Result<size_t> FileFd::writev(Span<IoSlice> slices) {
 #if TD_PORT_POSIX
+  if (is_virtual()) {
+    size_t res = 0;
+    for (const auto &slice : slices) {
+      TRY_RESULT(size, write(Slice(static_cast<const char *>(slice.iov_base), slice.iov_len)));
+      res += size;
+      if (size != slice.iov_len) {
+        break;
+      }
+    }
+    return res;
+  }
   auto native_fd = get_native_fd().fd();
   TRY_RESULT(slices_size, narrow_cast_safe<int>(slices.size()));
   auto bytes_written = detail::skip_eintr([&] { return ::writev(native_fd, slices.begin(), slices_size); });
@@ -318,6 +376,15 @@ Result<size_t> FileFd::writev(Span<IoSlice> slices) {
 }
 
 Result<size_t> FileFd::read(MutableSlice slice) {
+  if (is_virtual()) {
+    TRY_RESULT(read_size, impl_->virtual_file_system_->read_at(impl_->virtual_handle_, slice, impl_->virtual_position_));
+    CHECK(read_size <= slice.size());
+    impl_->virtual_position_ += static_cast<int64>(read_size);
+    if (read_size == 0) {
+      get_poll_info().clear_flags(PollFlags::Read());
+    }
+    return read_size;
+  }
   auto native_fd = get_native_fd().fd();
 #if TD_PORT_POSIX
   auto bytes_read = detail::skip_eintr([&] { return ::read(native_fd, slice.begin(), slice.size()); });
@@ -354,6 +421,11 @@ Result<size_t> FileFd::pwrite(Slice slice, int64 offset) {
   if (offset < 0) {
     return Status::Error("Offset must be non-negative");
   }
+  if (is_virtual()) {
+    TRY_RESULT(written, impl_->virtual_file_system_->write_at(impl_->virtual_handle_, slice, offset));
+    CHECK(written <= slice.size());
+    return written;
+  }
   auto native_fd = get_native_fd().fd();
 #if TD_PORT_POSIX
   TRY_RESULT(offset_off_t, narrow_cast_safe<off_t>(offset));
@@ -379,6 +451,11 @@ Result<size_t> FileFd::pwrite(Slice slice, int64 offset) {
 Result<size_t> FileFd::pread(MutableSlice slice, int64 offset) const {
   if (offset < 0) {
     return Status::Error("Offset must be non-negative");
+  }
+  if (is_virtual()) {
+    TRY_RESULT(read_size, impl_->virtual_file_system_->read_at(impl_->virtual_handle_, slice, offset));
+    CHECK(read_size <= slice.size());
+    return read_size;
   }
   auto native_fd = get_native_fd().fd();
 #if TD_PORT_POSIX
@@ -448,6 +525,14 @@ Status FileFd::lock(LockFlags flags, const string &path, int32 max_tries) {
       remove_local_lock(path);
     }
   };
+
+  if (is_virtual()) {
+    // a virtual file is shared only inside this process, so the local lock is all there is
+    if (flags == LockFlags::Write) {
+      need_local_unlock = false;
+    }
+    return Status::OK();
+  }
 
 #if TD_PORT_POSIX
   auto native_fd = get_native_fd().fd();
@@ -579,6 +664,9 @@ Result<FileSize> get_file_size(const FileFd &file_fd) {
 #endif
 
 Result<int64> FileFd::get_size() const {
+  if (is_virtual()) {
+    return impl_->virtual_file_system_->get_size(impl_->virtual_handle_);
+  }
 #if TD_PORT_POSIX
   TRY_RESULT(s, stat());
 #elif TD_PORT_WINDOWS
@@ -588,6 +676,10 @@ Result<int64> FileFd::get_size() const {
 }
 
 Result<int64> FileFd::get_real_size() const {
+  if (is_virtual()) {
+    TRY_RESULT(s, stat());
+    return s.real_size_;
+  }
 #if TD_PORT_POSIX
   TRY_RESULT(s, stat());
 #elif TD_PORT_WINDOWS
@@ -598,6 +690,19 @@ Result<int64> FileFd::get_real_size() const {
 
 Result<Stat> FileFd::stat() const {
   CHECK(!empty());
+  if (is_virtual()) {
+    // an open virtual file is always a regular file; times are known only to stat(path)
+    TRY_RESULT(size, get_size());
+    Stat res;
+    res.is_dir_ = false;
+    res.is_reg_ = true;
+    res.is_symbolic_link_ = false;
+    res.size_ = size;
+    res.real_size_ = size;
+    res.atime_nsec_ = 0;
+    res.mtime_nsec_ = 0;
+    return res;
+  }
 #if TD_PORT_POSIX
   return detail::fstat(get_native_fd().fd());
 #elif TD_PORT_WINDOWS
@@ -635,6 +740,9 @@ Result<Stat> FileFd::stat() const {
 
 Status FileFd::sync() {
   CHECK(!empty());
+  if (is_virtual()) {
+    return impl_->virtual_file_system_->sync(impl_->virtual_handle_);
+  }
 #if TD_PORT_POSIX
 #if TD_DARWIN
   if (detail::skip_eintr([&] { return fcntl(get_native_fd().fd(), F_FULLFSYNC); }) == -1) {
@@ -651,6 +759,9 @@ Status FileFd::sync() {
 
 Status FileFd::sync_barrier() {
   CHECK(!empty());
+  if (is_virtual()) {
+    return sync();
+  }
 #if TD_DARWIN && defined(F_BARRIERFSYNC)
   if (detail::skip_eintr([&] { return fcntl(get_native_fd().fd(), F_BARRIERFSYNC); }) != -1) {
     return Status::OK();
@@ -661,6 +772,13 @@ Status FileFd::sync_barrier() {
 
 Status FileFd::seek(int64 position) {
   CHECK(!empty());
+  if (is_virtual()) {
+    if (position < 0) {
+      return Status::Error("Seek failed: position must be non-negative");
+    }
+    impl_->virtual_position_ = position;
+    return Status::OK();
+  }
 #if TD_PORT_POSIX
   TRY_RESULT(position_off_t, narrow_cast_safe<off_t>(position));
   if (detail::skip_eintr([&] { return ::lseek(get_native_fd().fd(), position_off_t, SEEK_SET); }) < 0) {
@@ -676,6 +794,10 @@ Status FileFd::seek(int64 position) {
 
 Status FileFd::truncate_to_current_position(int64 current_position) {
   CHECK(!empty());
+  if (is_virtual()) {
+    // as on Windows, the position set by seek() is the one that counts
+    return impl_->virtual_file_system_->truncate(impl_->virtual_handle_, impl_->virtual_position_);
+  }
 #if TD_PORT_POSIX
   TRY_RESULT(current_position_off_t, narrow_cast_safe<off_t>(current_position));
   if (detail::skip_eintr([&] { return ::ftruncate(get_native_fd().fd(), current_position_off_t); }) < 0) {
