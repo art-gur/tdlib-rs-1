@@ -20,6 +20,8 @@ namespace detail {
 class FileFdImpl;
 }  // namespace detail
 
+class VirtualFileSystem;
+
 class FileFd {
  public:
   FileFd();
@@ -69,10 +71,15 @@ class FileFd {
   const NativeFd &get_native_fd() const;
   NativeFd move_as_native_fd();
 
+  // true for a file of a VirtualFileSystem, which has no native fd
+  bool is_virtual() const;
+
  private:
   unique_ptr<detail::FileFdImpl> impl_;
 
   explicit FileFd(unique_ptr<detail::FileFdImpl> impl);
+
+  static Result<FileFd> open_virtual(VirtualFileSystem *file_system, CSlice filepath, int32 flags);
 };
 
 }  // namespace td

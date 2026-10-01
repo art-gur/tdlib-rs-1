@@ -10,6 +10,7 @@
 #include "td/utils/logging.h"
 #include "td/utils/port/config.h"
 #include "td/utils/port/detail/skip_eintr.h"
+#include "td/utils/port/FileSystemHooks.h"
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/SliceBuilder.h"
 
@@ -101,9 +102,60 @@ Status rmrf(CSlice path) {
   });
 }
 
+static Result<bool> walk_virtual_dir(VirtualFileSystem *file_system, const string &dir,
+                                     const std::function<WalkPath::Action(CSlice name, WalkPath::Type type)> &func) {
+  switch (func(dir, WalkPath::Type::EnterDir)) {
+    case WalkPath::Action::Abort:
+      return false;
+    case WalkPath::Action::SkipDir:
+      return true;
+    case WalkPath::Action::Continue:
+      break;
+  }
+
+  // the entries are collected first, so that the file system isn't called back while it lists
+  vector<std::pair<string, bool>> entries;
+  TRY_STATUS(file_system->list(dir, [&](Slice name, bool is_dir) {
+    entries.emplace_back(name.str(), is_dir);
+    return true;
+  }));
+  for (auto &entry : entries) {
+    if (entry.first.empty() || entry.first[0] == '.') {
+      // the same entries are skipped by the walk over OS directories on Windows
+      continue;
+    }
+    string full_name = PSTRING() << dir << TD_DIR_SLASH << entry.first;
+    if (entry.second) {
+      TRY_RESULT(is_ok, walk_virtual_dir(file_system, full_name, func));
+      if (!is_ok) {
+        return false;
+      }
+    } else if (func(full_name, WalkPath::Type::RegularFile) == WalkPath::Action::Abort) {
+      return false;
+    }
+  }
+
+  return func(dir, WalkPath::Type::ExitDir) != WalkPath::Action::Abort;
+}
+
+static Status walk_virtual_path(VirtualFileSystem *file_system, CSlice path,
+                                const std::function<WalkPath::Action(CSlice name, WalkPath::Type type)> &func) {
+  Slice dir = path;
+  while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\')) {
+    dir.remove_suffix(1);
+  }
+  TRY_RESULT(is_ok, walk_virtual_dir(file_system, dir.str(), func));
+  static_cast<void>(is_ok);
+  return Status::OK();
+}
+
 #if TD_PORT_POSIX
 
 Status mkdir(CSlice dir, int32 mode) {
+  auto *file_system = get_virtual_file_system(dir);
+  if (file_system != nullptr) {
+    return file_system->mkdir(dir);
+  }
   int mkdir_res = [&] {
     int res;
     do {
@@ -124,6 +176,14 @@ Status mkdir(CSlice dir, int32 mode) {
 }
 
 Status rename(CSlice from, CSlice to) {
+  auto *from_file_system = get_virtual_file_system(from);
+  auto *to_file_system = get_virtual_file_system(to);
+  if (from_file_system != nullptr || to_file_system != nullptr) {
+    if (from_file_system != to_file_system) {
+      return Status::Error(PSLICE() << "Can't rename \"" << from << "\" to \"" << to << "\" across file systems");
+    }
+    return from_file_system->rename(from, to);
+  }
   int rename_res = detail::skip_eintr([&] { return ::rename(from.c_str(), to.c_str()); });
   if (rename_res < 0) {
     return OS_ERROR(PSLICE() << "Can't rename \"" << from << "\" to \"" << to << '\"');
@@ -132,6 +192,10 @@ Status rename(CSlice from, CSlice to) {
 }
 
 Result<string> realpath(CSlice slice, bool ignore_access_denied) {
+  if (get_virtual_file_system(slice) != nullptr) {
+    // ::realpath needs the path to exist on disk; a virtual path is already absolute
+    return slice.str();
+  }
   char full_path[PATH_MAX + 1];
   string res;
   char *err = detail::skip_eintr_cstr([&] { return ::realpath(slice.c_str(), full_path); });
@@ -164,6 +228,10 @@ Status chdir(CSlice dir) {
 }
 
 Status rmdir(CSlice dir) {
+  auto *file_system = get_virtual_file_system(dir);
+  if (file_system != nullptr) {
+    return file_system->rmdir(dir);
+  }
   int rmdir_res = detail::skip_eintr([&] { return ::rmdir(dir.c_str()); });
   if (rmdir_res) {
     return OS_ERROR(PSLICE() << "Can't delete directory \"" << dir << '"');
@@ -172,6 +240,10 @@ Status rmdir(CSlice dir) {
 }
 
 Status unlink(CSlice path) {
+  auto *file_system = get_virtual_file_system(path);
+  if (file_system != nullptr) {
+    return file_system->unlink(path);
+  }
   int unlink_res = detail::skip_eintr([&] { return ::unlink(path.c_str()); });
   if (unlink_res) {
     return OS_ERROR(PSLICE() << "Can't unlink \"" << path << '"');
@@ -405,6 +477,10 @@ Result<bool> walk_path(string &path, const WalkFunction &func) {
 }  // namespace detail
 
 Status WalkPath::do_run(CSlice path, const detail::WalkFunction &func) {
+  auto *file_system = get_virtual_file_system(path);
+  if (file_system != nullptr) {
+    return walk_virtual_path(file_system, path, func);
+  }
   string curr_path;
   curr_path.reserve(PATH_MAX + 10);
   curr_path = path.c_str();
@@ -417,6 +493,10 @@ Status WalkPath::do_run(CSlice path, const detail::WalkFunction &func) {
 #if TD_PORT_WINDOWS
 
 Status mkdir(CSlice dir, int32 mode) {
+  auto *file_system = get_virtual_file_system(dir);
+  if (file_system != nullptr) {
+    return file_system->mkdir(dir);
+  }
   TRY_RESULT(wdir, to_wstring(dir));
   while (!wdir.empty() && (wdir.back() == L'/' || wdir.back() == L'\\')) {
     wdir.pop_back();
@@ -429,6 +509,14 @@ Status mkdir(CSlice dir, int32 mode) {
 }
 
 Status rename(CSlice from, CSlice to) {
+  auto *from_file_system = get_virtual_file_system(from);
+  auto *to_file_system = get_virtual_file_system(to);
+  if (from_file_system != nullptr || to_file_system != nullptr) {
+    if (from_file_system != to_file_system) {
+      return Status::Error(PSLICE() << "Can't rename \"" << from << "\" to \"" << to << "\" across file systems");
+    }
+    return from_file_system->rename(from, to);
+  }
   TRY_RESULT(wfrom, to_wstring(from));
   TRY_RESULT(wto, to_wstring(to));
   auto status = td::MoveFileExFromAppW(wfrom.c_str(), wto.c_str(), MOVEFILE_REPLACE_EXISTING);
@@ -474,6 +562,10 @@ Status chdir(CSlice dir) {
 }
 
 Status rmdir(CSlice dir) {
+  auto *file_system = get_virtual_file_system(dir);
+  if (file_system != nullptr) {
+    return file_system->rmdir(dir);
+  }
   TRY_RESULT(wdir, to_wstring(dir));
   int status = td::RemoveDirectoryFromAppW(wdir.c_str());
   if (!status) {
@@ -483,6 +575,10 @@ Status rmdir(CSlice dir) {
 }
 
 Status unlink(CSlice path) {
+  auto *file_system = get_virtual_file_system(path);
+  if (file_system != nullptr) {
+    return file_system->unlink(path);
+  }
   TRY_RESULT(wpath, to_wstring(path));
   int status = td::DeleteFileFromAppW(wpath.c_str());
   if (!status) {
@@ -650,6 +746,10 @@ static Result<bool> walk_path_dir(const std::wstring &dir_name,
 }
 
 Status WalkPath::do_run(CSlice path, const std::function<Action(CSlice name, Type)> &func) {
+  auto *file_system = get_virtual_file_system(path);
+  if (file_system != nullptr) {
+    return walk_virtual_path(file_system, path, func);
+  }
   TRY_RESULT(wpath, to_wstring(path));
   Slice path_slice = path;
   while (!path_slice.empty() && (path_slice.back() == '/' || path_slice.back() == '\\')) {

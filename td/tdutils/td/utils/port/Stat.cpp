@@ -7,6 +7,7 @@
 #include "td/utils/port/Stat.h"
 
 #include "td/utils/port/FileFd.h"
+#include "td/utils/port/FileSystemHooks.h"
 
 #if TD_PORT_POSIX
 
@@ -198,6 +199,10 @@ Status update_atime(CSlice path) {
 #endif
 
 Result<Stat> stat(CSlice path) {
+  auto *file_system = get_virtual_file_system(path);
+  if (file_system != nullptr) {
+    return file_system->stat(path);
+  }
 #if TD_PORT_POSIX
   struct ::stat buf;
   int err = detail::skip_eintr([&] { return ::stat(path.c_str(), &buf); });

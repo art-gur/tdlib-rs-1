@@ -55,6 +55,7 @@ set_property(SOURCE ${TDMIME_AUTO} APPEND PROPERTY COMPILE_DEFINITIONS "__gnu_in
 set(TDUTILS_SOURCE
   td/utils/port/Clocks.cpp
   td/utils/port/FileFd.cpp
+  td/utils/port/FileSystemHooks.cpp
   td/utils/port/IPAddress.cpp
   td/utils/port/MemoryMapping.cpp
   td/utils/port/path.cpp
@@ -138,6 +139,7 @@ set(TDUTILS_SOURCE
   td/utils/port/EventFd.h
   td/utils/port/EventFdBase.h
   td/utils/port/FileFd.h
+  td/utils/port/FileSystemHooks.h
   td/utils/port/FromApp.h
   td/utils/port/IoSlice.h
   td/utils/port/IPAddress.h
@@ -325,6 +327,7 @@ set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/Enumerator.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/EpochBasedMemoryReclamation.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/filesystem.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/FileSystemHooks.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/gzip.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/HazardPointers.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/HashSet.cpp

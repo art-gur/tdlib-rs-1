@@ -19,6 +19,7 @@
 #include "td/utils/common.h"
 #include "td/utils/FlatHashMap.h"
 #include "td/utils/logging.h"
+#include "td/utils/port/FileSystemHooks.h"
 #include "td/utils/Promise.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
@@ -129,7 +130,8 @@ class Global final : public ActorContext {
   Slice get_dir() const;
 
   Slice get_secure_files_dir() const {
-    if (store_all_files_in_files_directory_) {
+    // files in an application-provided file system stay together, whatever the option says
+    if (store_all_files_in_files_directory_ || get_virtual_file_system(get_files_dir()) != nullptr) {
       return get_files_dir();
     }
     return get_dir();
